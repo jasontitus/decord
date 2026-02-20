@@ -1,5 +1,7 @@
 # Custom ignored
 .vscode
+*.mp4
+*.mov
 build/*
 docs/_build
 .DS_Store
