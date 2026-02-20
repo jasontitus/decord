@@ -36,7 +36,6 @@ void FFMPEGFilterGraph::Init(std::string filters_descr, AVCodecContext *dec_ctx)
     CHECK(buffersink) << "Error: no buffersink";
     AVFilterInOut *outputs = avfilter_inout_alloc();
 	AVFilterInOut *inputs  = avfilter_inout_alloc();
-	enum AVPixelFormat pix_fmts[] = { AV_PIX_FMT_RGB24 , AV_PIX_FMT_NONE };
 	// AVBufferSinkParams *buffersink_params;
 
 	filter_graph_.reset(avfilter_graph_alloc());
@@ -49,28 +48,21 @@ void FFMPEGFilterGraph::Init(std::string filters_descr, AVCodecContext *dec_ctx)
             dec_ctx->width, dec_ctx->height, dec_ctx->pix_fmt,
             dec_ctx->time_base.num, dec_ctx->time_base.den,
             dec_ctx->sample_aspect_ratio.num, dec_ctx->sample_aspect_ratio.den);
-    // std::snprintf(args, sizeof(args),
-    //         "video_size=%dx%d:pix_fmt=%d",
-    //         dec_ctx->width, dec_ctx->height, dec_ctx->pix_fmt);
 
-    // LOG(INFO) << "filter args: " << args;
-
-    // AVFilterContext *buffersrc_ctx;
-    // AVFilterContext *buffersink_ctx;
     CHECK_GE(avfilter_graph_create_filter(&buffersrc_ctx_, buffersrc, "in",
 		args, NULL, filter_graph_.get()), 0) << "Cannot create buffer source";
 
-    // LOG(INFO) << "create filter src";
-
     /* buffer video sink: to terminate the filter chain. */
-	// buffersink_params = av_buffersink_params_alloc();
-	// buffersink_params->pixel_fmts = pix_fmts;
 	CHECK_GE(avfilter_graph_create_filter(&buffersink_ctx_, buffersink, "out",
 		NULL, NULL, filter_graph_.get()), 0) << "Cannot create buffer sink";
-	// av_free(buffersink_params);
-    // LOG(INFO) << "create filter sink";
-    // CHECK_GE(av_opt_set_bin(buffersink_ctx_, "pix_fmts", (uint8_t *)&pix_fmts, sizeof(AV_PIX_FMT_RGB24), AV_OPT_SEARCH_CHILDREN), 0) << "Set bin error";
+#if LIBAVFILTER_VERSION_MAJOR < 10
+    enum AVPixelFormat pix_fmts[] = { AV_PIX_FMT_RGB24 , AV_PIX_FMT_NONE };
     CHECK_GE(av_opt_set_int_list(buffersink_ctx_, "pix_fmts", pix_fmts, AV_PIX_FMT_NONE, AV_OPT_SEARCH_CHILDREN), 0) << "Set output pixel format error.";
+#else
+    // FFmpeg 7+: pix_fmts is no longer a runtime option on buffersink,
+    // so enforce output format via the filter chain instead.
+    filters_descr += ",format=rgb24";
+#endif
 
     // LOG(INFO) << "create filter set opt";
     /* Endpoints for the filter graph. */
