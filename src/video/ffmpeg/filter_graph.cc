@@ -7,6 +7,9 @@
 #include "filter_graph.h"
 
 #include <dmlc/logging.h>
+extern "C" {
+#include <libavutil/pixdesc.h>
+}
 
 namespace decord {
 namespace ffmpeg {
@@ -43,11 +46,29 @@ void FFMPEGFilterGraph::Init(std::string filters_descr, AVCodecContext *dec_ctx)
 	//LOG(INFO) << "Original GraphFilter nb_threads: " << filter_graph_->nb_threads;
 	filter_graph_->nb_threads = 1;
     /* buffer video source: the decoded frames from the decoder will be inserted here. */
-	std::snprintf(args, sizeof(args),
+    // Sanitize sample_aspect_ratio: a zero denominator causes inf which FFmpeg 7+ rejects
+    int sar_num = dec_ctx->sample_aspect_ratio.num;
+    int sar_den = dec_ctx->sample_aspect_ratio.den;
+    if (sar_den == 0) {
+        sar_num = 1;
+        sar_den = 1;
+    }
+#if LIBAVFILTER_VERSION_MAJOR >= 10
+    // FFmpeg 7+: pix_fmt option uses AV_OPT_TYPE_PIXEL_FMT, requiring a format name string
+    const char *pix_fmt_name = av_get_pix_fmt_name(dec_ctx->pix_fmt);
+    if (!pix_fmt_name) pix_fmt_name = "yuv420p";
+    std::snprintf(args, sizeof(args),
+            "video_size=%dx%d:pix_fmt=%s:time_base=%d/%d:pixel_aspect=%d/%d",
+            dec_ctx->width, dec_ctx->height, pix_fmt_name,
+            dec_ctx->time_base.num, dec_ctx->time_base.den,
+            sar_num, sar_den);
+#else
+    std::snprintf(args, sizeof(args),
             "video_size=%dx%d:pix_fmt=%d:time_base=%d/%d:pixel_aspect=%d/%d",
             dec_ctx->width, dec_ctx->height, dec_ctx->pix_fmt,
             dec_ctx->time_base.num, dec_ctx->time_base.den,
-            dec_ctx->sample_aspect_ratio.num, dec_ctx->sample_aspect_ratio.den);
+            sar_num, sar_den);
+#endif
 
     CHECK_GE(avfilter_graph_create_filter(&buffersrc_ctx_, buffersrc, "in",
 		args, NULL, filter_graph_.get()), 0) << "Cannot create buffer source";
